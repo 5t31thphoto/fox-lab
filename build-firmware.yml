@@ -1,0 +1,115 @@
+name: build-firmware
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate sources
+        run: |
+          set -e
+          zip=$(ls -t *.zip 2>/dev/null | head -1 || true)
+          if [ -n "$zip" ]; then
+            tmp=$(mktemp -d); unzip -oq "$zip" -d "$tmp"
+            entries=$(ls -A "$tmp")
+            if [ "$(echo "$entries" | wc -l)" -eq 1 ] && [ -d "$tmp/$entries" ]; then
+              src="$tmp/$entries"; else src="$tmp"; fi
+            cp -a "$src"/. ./ 2>/dev/null || true
+            rm -rf "$tmp"
+          fi
+          if [ ! -f firmware/CMakeLists.txt ]; then
+            found=$(find . -name CMakeLists.txt -path '*/firmware/CMakeLists.txt' | head -1 || true)
+            if [ -n "$found" ]; then
+              root=$(dirname "$(dirname "$found")")
+              cp -a "$root"/. ./ 2>/dev/null || true
+            fi
+          fi
+          test -f firmware/CMakeLists.txt
+          ls -la firmware/main/
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.2
+          target: esp32s3
+          path: firmware
+
+      - name: Assemble dist + manifest
+        run: |
+          set -e
+          mkdir -p dist
+          FA=firmware/build/flasher_args.json
+          cp firmware/build/bootloader/bootloader.bin dist/
+          cp firmware/build/partition_table/partition-table.bin dist/
+          APP=$(ls firmware/build/*.bin 2>/dev/null | grep -v bootloader | grep -v partition | head -1)
+          test -n "$APP"
+          cp "$APP" dist/foxlab.bin
+          APP_OFFSET=$(python3 -c "
+          import csv
+          for row in csv.reader(open('firmware/partitions.csv')):
+              row=[c.strip() for c in row if c.strip()]
+              if row and row[0]=='factory': print(row[3]); break
+          ")
+          echo "app offset=$APP_OFFSET"
+          cat > dist/manifest.json <<JSON
+          {
+            "name": "Fox Lab",
+            "version": "1.0.0",
+            "new_install_prompt_erase": true,
+            "builds": [{
+              "chipFamily": "ESP32-S3",
+              "parts": [
+                { "path": "bootloader.bin", "offset": 0 },
+                { "path": "partition-table.bin", "offset": 32768 },
+                { "path": "foxlab.bin", "offset": $APP_OFFSET }
+              ]
+            }]
+          }
+          JSON
+          cat dist/manifest.json
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foxlab-firmware
+          path: dist/
+
+      - name: Stage Pages site
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p site/firmware
+          cp web/index.html site/
+          cp dist/* site/firmware/
+          touch site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: site
+
+  deploy-pages:
+    if: github.ref == 'refs/heads/main'
+    needs: firmware
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
