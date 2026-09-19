@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Fox Lab Flasher</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem;
+           background: #0f0f1a; color: #f7c59f; }
+    h1 { color: #ff6b35; }
+    code { background: #1a1a2e; padding: 0.15rem 0.4rem; border-radius: 4px; }
+    .box { border: 1px solid #ff6b35; border-radius: 12px; padding: 1.25rem; margin: 1.5rem 0; }
+    esp-web-install-button { --esp-tools-button-color: #ff6b35; }
+  </style>
+</head>
+<body>
+  <h1>🦊 Fox Lab</h1>
+  <p>Minimal AtomS3R + Atomic Echo Base boot test (display + fox face + speaker).</p>
+  <div class="box">
+    <p><strong>Expected after flash</strong></p>
+    <ul>
+      <li>Brief <strong>red</strong> screen, then an orange fox face</li>
+      <li>Two short chirps</li>
+      <li>Serial: <code>FOXLAB: RED flash</code> … <code>FOXLAB: ready</code></li>
+    </ul>
+    <p>
+      <esp-web-install-button manifest="./firmware/manifest.json">
+        <button slot="activate">Flash Fox Lab</button>
+      </esp-web-install-button>
+    </p>
+  </div>
+  <p>Hold the button for “listen” eyes; click for a random chirp.</p>
+</body>
+</html>
