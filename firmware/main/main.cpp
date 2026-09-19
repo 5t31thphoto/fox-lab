@@ -14,7 +14,7 @@
 #include "fox_face.h"
 #include "fox_audio.h"
 
-static const char MARKER[] = "FOXLAB_v1_boot";
+static const char MARKER[] = "FOXLAB_v2_pages";
 
 extern "C" void initArduino();
 
