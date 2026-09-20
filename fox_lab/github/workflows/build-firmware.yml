@@ -1,0 +1,124 @@
+name: build-firmware
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  pull_request:
+  workflow_run:
+    workflows: [ "drop_zip" ]
+    types: [ completed ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  firmware:
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
+
+      - name: Locate sources (self-healing bootstrap)
+        run: |
+          set -e
+          zip=$(ls -t *.zip 2>/dev/null | head -1 || true)
+          if [ -n "$zip" ]; then
+            echo "Expanding $zip"
+            tmp=$(mktemp -d); unzip -oq "$zip" -d "$tmp"
+            entries=$(ls -A "$tmp")
+            if [ "$(echo "$entries" | wc -l)" -eq 1 ] && [ -d "$tmp/$entries" ]; then
+              src="$tmp/$entries"; else src="$tmp"; fi
+            cp -a "$src"/. ./ 2>/dev/null || (cd "$src" && tar cf - . | (cd "$OLDPWD" && tar xf -))
+            rm -rf "$tmp"
+          fi
+          if [ ! -f firmware/CMakeLists.txt ]; then
+            found=$(find . -name CMakeLists.txt -path '*/firmware/CMakeLists.txt' | head -1 || true)
+            if [ -n "$found" ]; then
+              root=$(dirname "$(dirname "$found")")
+              echo "Hoisting project from '$root' to repo root"
+              cp -a "$root"/. ./ 2>/dev/null || (cd "$root" && tar cf - --exclude=.git . | (cd "$GITHUB_WORKSPACE" && tar xf -))
+            fi
+          fi
+          if [ ! -f firmware/CMakeLists.txt ]; then
+            echo "::error::firmware/ not found at repo root."
+            find . -maxdepth 2 -not -path './.git/*' | sort
+            exit 1
+          fi
+          echo "Sources located:"; ls
+          ls -la firmware/main/
+          test -f web/index.html || { echo "::error::web/index.html missing"; exit 1; }
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.2
+          target: esp32s3
+          path: firmware
+
+      - name: Assemble dist + web-flash manifest
+        run: |
+          set -e
+          mkdir -p dist
+          cp firmware/build/bootloader/bootloader.bin dist/
+          cp firmware/build/partition_table/partition-table.bin dist/
+          APP=$(ls firmware/build/*.bin | grep -v bootloader | grep -v partition | head -1)
+          test -n "$APP" && test -s "$APP"
+          cp "$APP" dist/foxlab.bin
+          python3 tools/write_manifest.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foxlab-firmware
+          path: dist/
+
+      # CRITICAL: Pages tree the flasher expects
+      #   site/index.html
+      #   site/firmware/{manifest.json,bootloader.bin,partition-table.bin,foxlab.bin}
+      - name: Stage Pages site
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+        run: |
+          set -e
+          rm -rf site
+          mkdir -p site/firmware
+          cp web/index.html site/index.html
+          cp dist/bootloader.bin dist/partition-table.bin dist/foxlab.bin dist/manifest.json site/firmware/
+          test -f site/index.html
+          test -f site/firmware/manifest.json
+          test -f site/firmware/bootloader.bin
+          test -f site/firmware/partition-table.bin
+          test -f site/firmware/foxlab.bin
+          touch site/.nojekyll
+          echo "=== site tree (must include firmware/manifest.json) ==="
+          find site -type f | sort
+          echo "=== manifest ==="
+          cat site/firmware/manifest.json
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+        with:
+          path: site
+
+  deploy-pages:
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+    needs: firmware
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

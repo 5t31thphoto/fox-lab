@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Fox Lab Flasher</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem;
+           background: #0f0f1a; color: #f7c59f; }
+    h1 { color: #ff6b35; }
+    code { background: #1a1a2e; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+    .box { border: 1px solid #ff6b35; border-radius: 12px; padding: 1.25rem; margin: 1.5rem 0; }
+    a { color: #ff9f6b; }
+  </style>
+</head>
+<body>
+  <h1>🦊 Fox Lab</h1>
+  <p>AtomS3R + Atomic Echo Base boot test.</p>
+  <div class="box">
+    <p><strong>Flash</strong> (needs <code>firmware/manifest.json</code> on this site)</p>
+    <!-- Relative to this page: ./firmware/manifest.json -->
+    <esp-web-install-button manifest="./firmware/manifest.json">
+      <button slot="activate">Flash Fox Lab</button>
+      <span slot="unsupported">Browser doesn't support Web Serial</span>
+      <span slot="not-allowed">Permission denied</span>
+    </esp-web-install-button>
+    <p style="margin-top:1rem;font-size:0.85em">
+      If flash fails with “failed to download manifest”, open
+      <a href="./firmware/manifest.json">./firmware/manifest.json</a>
+      — if that 404s, CI did not publish the bins. Check the Actions artifact
+      <code>foxlab-firmware</code> and the deploy-pages job log.
+    </p>
+  </div>
+</body>
+</html>
