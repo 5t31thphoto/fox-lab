@@ -1,8 +1,0 @@
-dependencies:
-  idf: ">=5.1"
-  # Official AtomS3R PCN + black-screen fixes:
-  # M5GFX >= 0.2.22 = ST7735 panel support
-  # M5GFX >= 0.2.27 = low-clock re-probe for GC9107 ID (issue #222)
-  m5stack/m5gfx: "^0.2.27"
-  m5stack/m5unified: "^0.2.17"
-  espressif/arduino-esp32: "^3.0.0"
