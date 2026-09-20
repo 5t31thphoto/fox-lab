@@ -21,7 +21,7 @@ def main() -> int:
     offset = factory_offset("firmware/partitions.csv")
     manifest = {
         "name": "Fox Lab",
-        "version": "1.0.0",
+        "version": "1.0.3",
         "new_install_prompt_erase": True,
         "builds": [
             {
