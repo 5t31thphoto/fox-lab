@@ -82,9 +82,6 @@ jobs:
           name: foxlab-firmware
           path: dist/
 
-      # CRITICAL: Pages tree the flasher expects
-      #   site/index.html
-      #   site/firmware/{manifest.json,bootloader.bin,partition-table.bin,foxlab.bin}
       - name: Stage Pages site
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
         run: |
