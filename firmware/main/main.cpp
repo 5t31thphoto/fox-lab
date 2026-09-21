@@ -1,20 +1,13 @@
-// Fox Lab — minimal boot test for AtomS3R + Atomic Echo Base.
-// Boot order copied from the working M5 mic-avatar:
-//   1. M5.begin (no atomic_echo, internal_mic=false)
-//   2. paint display
-//   3. M5.Speaker.end(); then M5EchoBase.init(...)
-//   4. simple fox face + chirp
-//
-// CONFIG_AUTOSTART_ARDUINO=n — we own app_main.
-
+// Fox Lab v5 — pin M5GFX >=0.2.27 (ST7735 PCN + GC9107 low-clock re-probe)
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
+#include <nvs_flash.h>
 #include "fox_face.h"
 #include "fox_audio.h"
 
-static const char MARKER[] = "FOXLAB_v2_pages";
+static const char MARKER[] = "FOXLAB_v5_gfx027";
 
 extern "C" void initArduino();
 
@@ -29,38 +22,50 @@ extern "C" void app_main(void) {
     esp_rom_printf("\r\nFOXLAB: app_main %s\r\n", MARKER);
     ESP_LOGI("FOXLAB", "app_main %s", MARKER);
 
+    // Fresh autodetect every boot (no NVS board:18 pin)
+    nvs_flash_erase();
+    nvs_flash_init();
+
     initArduino();
     ESP_LOGI("FOXLAB", "initArduino ok");
 
-    // --- same as working avatar ---
     auto cfg = M5.config();
     cfg.serial_baudrate = 115200;
     cfg.internal_mic = false;
-    // never: cfg.external_speaker.atomic_echo = true;
-    M5.begin(cfg);
-    ESP_LOGI("FOXLAB", "M5.begin ok");
-    esp_rom_printf("FOXLAB: M5.begin ok\r\n");
+    cfg.clear_display = true;
+    // Do NOT force cfg.board — let M5GFX 0.2.27+ probe GC9107 vs ST7735
+    // at low clock (the fix the working launcher binary ships).
 
-    // RED flash first — must see this if the panel works
-    M5.Display.setBrightness(200);
+    M5.begin(cfg);
+
+    ESP_LOGI("FOXLAB", "M5.begin ok board=%d w=%d h=%d",
+             (int)M5.getBoard(), M5.Display.width(), M5.Display.height());
+    esp_rom_printf("FOXLAB: begin board=%d w=%d h=%d\r\n",
+                   (int)M5.getBoard(), M5.Display.width(), M5.Display.height());
+
+    M5.Display.setBrightness(255);
+    delay(20);
+
     M5.Display.fillScreen(TFT_RED);
     M5.Display.setTextColor(TFT_WHITE);
     M5.Display.setTextDatum(middle_center);
-    M5.Display.drawString("FOX LAB", 64, 64);
+    M5.Display.setTextSize(2);
+    int cx = M5.Display.width() > 0 ? M5.Display.width() / 2 : 64;
+    int cy = M5.Display.height() > 0 ? M5.Display.height() / 2 : 64;
+    M5.Display.drawString("RED", cx, cy);
     ESP_LOGI("FOXLAB", "RED flash");
-    esp_rom_printf("FOXLAB: RED flash\r\n");
+    delay(800);
+
+    M5.Display.fillScreen(TFT_GREEN);
+    M5.Display.drawString("GREEN", cx, cy);
     delay(400);
 
     face_begin();
     face_draw_happy();
     ESP_LOGI("FOXLAB", "face up");
-    esp_rom_printf("FOXLAB: face up\r\n");
 
     if (!audio_begin(70)) {
-        M5.Display.setCursor(20, 110);
-        M5.Display.setTextColor(TFT_RED);
-        M5.Display.print("audio fail");
-        ESP_LOGE("FOXLAB", "audio fail — face only");
+        ESP_LOGE("FOXLAB", "audio fail");
     } else {
         boot_chirp();
         ESP_LOGI("FOXLAB", "chirp done");
@@ -70,23 +75,19 @@ extern "C" void app_main(void) {
     esp_rom_printf("FOXLAB: ready\r\n");
 
     uint32_t last = 0;
-    float mouth = 0;
     int phase = 0;
     for (;;) {
         M5.update();
-        uint32_t now = millis();
-        if (now - last > 80) {
-            last = now;
-            // idle mouth bob so the face is clearly "alive"
+        if (millis() - last > 80) {
+            last = millis();
             phase = (phase + 1) % 40;
-            mouth = (phase < 8) ? (phase / 8.0f) * 0.6f : 0.0f;
-            face_set_mouth(mouth);
+            face_set_mouth(phase < 8 ? (phase / 8.0f) * 0.6f : 0.0f);
             if (M5.BtnA.isPressed()) face_draw_listen();
             else face_draw_idle();
         }
-        // hold button: extra chirp
         if (M5.BtnA.wasClicked()) {
             face_draw_happy();
+            M5.Display.setBrightness(255);
             audio_tone(520 + (esp_random() % 400), 60 + (esp_random() % 40));
         }
         delay(5);
