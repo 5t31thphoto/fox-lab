@@ -1,6 +1,5 @@
-// Fox Lab v9 — stable glass + audio
-// Display works via LP5562. Audio broke because backlight used Wire (Echo needs Wire).
-// Fix: LP5562 on Wire1 (SDA45/SCL0), Echo keeps Wire (38/39).
+// Fox Lab v10 — no flicker (sprite buffer), no color test flash,
+// backlight once on Wire1, Echo on Wire, BasaltSoftworks splash.
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <Wire.h>
@@ -10,40 +9,39 @@
 #include "fox_face.h"
 #include "fox_audio.h"
 
-static const char MARKER[] = "FOXLAB_v9_stable";
+static const char MARKER[] = "FOXLAB_v10_splash";
 
 extern "C" void initArduino();
 
-static bool s_bl_ok = false;
-
-// Backlight only — never touch Wire (Echo owns it)
-static bool lp5562_set(uint8_t brightness) {
+// LP5562 once — Wire1 only (Echo owns Wire 38/39)
+static void backlight_on() {
     Wire1.end();
     Wire1.begin(45, 0, 400000);
     delay(1);
-    auto wr = [](uint8_t reg, uint8_t val) -> bool {
+    auto wr = [](uint8_t reg, uint8_t val) {
         Wire1.beginTransmission(0x30);
         Wire1.write(reg);
         Wire1.write(val);
-        return Wire1.endTransmission() == 0;
+        Wire1.endTransmission();
     };
-    if (!wr(0x00, 0x40)) {
-        ESP_LOGE("FOXLAB", "LP5562 NO ACK on Wire1");
-        esp_rom_printf("FOXLAB: LP5562 NO ACK\r\n");
-        return false;
+    Wire1.beginTransmission(0x30);
+    Wire1.write(0x00);
+    Wire1.write(0x40);
+    if (Wire1.endTransmission() != 0) {
+        ESP_LOGW("FOXLAB", "LP5562 no ACK");
+        return;
     }
     delay(1);
     wr(0x08, 0x01);
     wr(0x70, 0x00);
-    wr(0x0E, brightness);
-    s_bl_ok = true;
-    return true;
+    wr(0x0E, 200);  // steady, not max thrash
+    ESP_LOGI("FOXLAB", "backlight on (Wire1)");
 }
 
 static void boot_chirp() {
-    audio_tone(660, 80);
+    audio_tone(660, 70);
     while (audio_is_playing()) delay(2);
-    audio_tone(880, 120);
+    audio_tone(880, 90);
     while (audio_is_playing()) delay(2);
 }
 
@@ -61,32 +59,21 @@ extern "C" void app_main(void) {
     cfg.clear_display = true;
     M5.begin(cfg);
 
-    ESP_LOGI("FOXLAB", "M5.begin board=%d %dx%d",
-             (int)M5.getBoard(), M5.Display.width(), M5.Display.height());
-
-    // Backlight once on Wire1 — leave Wire alone for Echo
-    lp5562_set(255);
-    M5.Display.setBrightness(255);
-
-    M5.Display.fillScreen(TFT_RED);
-    delay(300);
-    M5.Display.fillScreen(TFT_BLACK);
+    backlight_on();
+    M5.Display.setBrightness(200);
 
     face_begin();
-    face_draw_happy();
-    ESP_LOGI("FOXLAB", "face up bl=%d", s_bl_ok ? 1 : 0);
+    face_draw_splash();
+    delay(1200);
 
-    // Echo Base: Wire 38/39 — do NOT call lp5562 after this except on Wire1
+    face_draw_happy();
+    ESP_LOGI("FOXLAB", "face up");
+
     if (!audio_begin(70)) {
         ESP_LOGE("FOXLAB", "audio fail");
-        M5.Display.setCursor(4, 110);
-        M5.Display.setTextColor(TFT_RED);
-        M5.Display.print("audio fail");
     } else {
         boot_chirp();
         ESP_LOGI("FOXLAB", "chirp done");
-        // refresh backlight without touching Echo's Wire
-        lp5562_set(255);
     }
 
     ESP_LOGI("FOXLAB", "ready");
@@ -94,20 +81,30 @@ extern "C" void app_main(void) {
 
     uint32_t last = 0;
     int phase = 0;
+    float last_mouth = -1;
+    bool last_listen = false;
+
     for (;;) {
         M5.update();
         uint32_t now = millis();
         if (now - last > 80) {
             last = now;
             phase = (phase + 1) % 40;
-            face_set_mouth(phase < 8 ? (phase / 8.0f) * 0.6f : 0.0f);
-            if (M5.BtnA.isPressed()) face_draw_listen();
-            else face_draw_idle();
+            float mouth = (phase < 8) ? (phase / 8.0f) * 0.6f : 0.0f;
+            bool listen = M5.BtnA.isPressed();
+            // Only redraw when something visible changed
+            if (mouth != last_mouth || listen != last_listen) {
+                face_set_mouth(mouth);
+                if (listen) face_draw_listen();
+                else face_draw_idle();
+                last_mouth = mouth;
+                last_listen = listen;
+            }
         }
         if (M5.BtnA.wasClicked()) {
             face_draw_happy();
-            // tone only — no panel reinit, no Wire steal
-            audio_tone(520 + (esp_random() % 400), 80 + (esp_random() % 40));
+            last_mouth = -1;
+            audio_tone(520 + (esp_random() % 400), 80);
         }
         delay(5);
     }
